@@ -5,4 +5,4 @@ geopy
 folium
 streamlit-folium
 openrouteservice
-Pillow
+pillow
