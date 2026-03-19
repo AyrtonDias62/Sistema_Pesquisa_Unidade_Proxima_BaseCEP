@@ -9,28 +9,16 @@ from streamlit_folium import st_folium
 from datetime import datetime
 
 # --- 1. CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="Tecnolab Logística - V8.4", layout="wide", page_icon="🚚")
+st.set_page_config(page_title="Tecnolab Logística V8.5", layout="wide", page_icon="🚚")
 
 # --- CSS RECALIBRADO ---
 st.markdown("""
     <style>
-    .block-container {
-        padding-top: 3rem; 
-        padding-bottom: 0rem;
-    }
-    .titulo-v84 {
-        color: #2E86C1;
-        margin: 0;
-        font-size: 32px;
-        font-weight: bold;
-    }
-    [data-testid="stMetric"] {
-        background-color: #f8f9fa;
-        padding: 10px;
-        border-radius: 8px;
-        border: 1px solid #e0e0e0;
-    }
+    .block-container { padding-top: 3.5rem; padding-bottom: 0rem; }
+    .header-container { border-bottom: 3px solid #2E86C1; padding-bottom: 15px; margin-bottom: 25px; }
+    .titulo-v85 { color: #2E86C1; margin: 0; font-size: 28px; font-weight: bold; }
     .stTextInput { margin-top: 10px; }
+    [data-testid="stMetric"] { background-color: #f8f9fa; padding: 10px; border-radius: 8px; border: 1px solid #e0e0e0; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -76,27 +64,13 @@ def calcular_distancia_reta(lat1, lon1, lat2, lon2):
     return round(R * (2 * math.atan2(math.sqrt(a), math.sqrt(1-a))), 2)
 
 @st.cache_data(show_spinner=False)
-def definir_unidade_sugerida(lat_c, lon_c, unidades):
-    for u in unidades: u['dist_reta'] = calcular_distancia_reta(lat_c, lon_c, u['lat'], u['lon'])
-    ordenadas = sorted(unidades, key=lambda x: x['dist_reta'])
-    finalistas, grupos_vistos = [], set()
-    for u in ordenadas:
-        if len(finalistas) >= 3: break
-        if any(u['nome'] in g for g in PARES_PROXIMOS):
-            grupo = next(g for g in PARES_PROXIMOS if u['nome'] in g)
-            id_g = tuple(sorted(list(grupo)))
-            if id_g not in grupos_vistos:
-                finalistas.append(u); grupos_vistos.add(id_g)
-        else: finalistas.append(u)
-    
-    melhor_u, menor_km = None, float('inf')
-    for cand in finalistas:
-        try:
-            route = ors_client.directions(coordinates=((cand['lon'], cand['lat']), (lon_c, lat_c)), profile='driving-car', format='geojson')
-            d = route['features'][0]['properties']['summary']['distance']
-            if d < menor_km: menor_km = d; melhor_u = cand['nome']
-        except: continue
-    return melhor_u if melhor_u else finalistas[0]['nome']
+def obter_distancia_real(lon1, lat1, lon2, lat2):
+    try:
+        route = ors_client.directions(coordinates=((lon1, lat1), (lon2, lat2)), profile='driving-car', format='geojson')
+        dist = route['features'][0]['properties']['summary']['distance'] / 1000
+        dur = route['features'][0]['properties']['summary']['duration'] / 60
+        return round(dist, 2), int(dur), route
+    except: return None, None, None
 
 # --- CABEÇALHO ---
 c_logo, c_tit = st.columns([1.2, 4])
@@ -104,11 +78,11 @@ with c_logo:
     try: st.image("furgao_tecnolab.png", width=220)
     except: st.warning("🚚 Imagem não encontrada")
 with c_tit:
-    st.markdown('<h1 class="titulo-v84">Painel Localizador CEP Cliente x Unidade Tecnolab mais próxima</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="titulo-v85">Painel Localizador CEP Cliente x Unidade Tecnolab mais próxima</h1>', unsafe_allow_html=True)
 
 if 'historico' not in st.session_state: st.session_state['historico'] = []
 
-# Área de Entrada
+# Entrada
 cep = st.text_input("CEP do Cliente:", placeholder="Ex: 09134-740", key="input_cep")
 
 if cep and len(cep.replace("-","")) == 8:
@@ -121,48 +95,79 @@ if cep and len(cep.replace("-","")) == 8:
             coords = geo_res['features'][0]['geometry']['coordinates']
             lat_c, lon_c = coords[1], coords[0]
             
-            sugerida = definir_unidade_sugerida(lat_c, lon_c, unidades_base)
-            for u in unidades_base: u['Dist. Reta (km)'] = calcular_distancia_reta(lat_c, lon_c, u['lat'], u['lon'])
-            df_comp = pd.DataFrame(unidades_base).sort_values('Dist. Reta (km)')
+            # Cálculo de Unidade Sugerida
+            for u in unidades_base: u['dist_reta'] = calcular_distancia_reta(lat_c, lon_c, u['lat'], u['lon'])
+            ordenadas = sorted(unidades_base, key=lambda x: x['dist_reta'])
+            
+            # Lógica de Finalistas para Sugestão
+            finalistas = []
+            vistos = set()
+            for u in ordenadas:
+                if len(finalistas) >= 3: break
+                par = next((g for g in PARES_PROXIMOS if u['nome'] in g), None)
+                if par:
+                    id_g = tuple(sorted(list(par)))
+                    if id_g not in vistos: finalistas.append(u); vistos.add(id_g)
+                else: finalistas.append(u)
+            
+            melhor_u_nome = finalistas[0]['nome']
+            menor_km_real = 999
+            for f in finalistas:
+                d, _, _ = obter_distancia_real(f['lon'], f['lat'], lon_c, lat_c)
+                if d and d < menor_km_real: menor_km_real = d; melhor_u_nome = f['nome']
+            
+            df_comp = pd.DataFrame(unidades_base).sort_values('dist_reta')
             
             cl, cr = st.columns([1, 1.4])
             with cl:
-                st.info(f"📍 Endereço: **{logra}, {bairro}**")
-                escolha = st.selectbox("Unidade:", df_comp['nome'].tolist(), index=df_comp['nome'].tolist().index(sugerida))
-                unidade_f = next(u for u in unidades_base if u["nome"] == escolha)
-
-                route_res = ors_client.directions(coordinates=((unidade_f['lon'], unidade_f['lat']), (lon_c, lat_c)), profile='driving-car', format='geojson')
-                dist_real = round(route_res['features'][0]['properties']['summary']['distance'] / 1000, 2)
-                tempo_min = int(route_res['features'][0]['properties']['summary']['duration'] / 60)
+                st.info(f"📍 **Endereço:** {logra}, {bairro}")
+                escolha = st.selectbox("Selecione a Unidade (Ajuste se necessário):", df_comp['nome'].tolist(), index=df_comp['nome'].tolist().index(melhor_u_nome))
+                
+                u_sel = next(u for u in unidades_base if u["nome"] == escolha)
+                u_sug = next(u for u in unidades_base if u["nome"] == melhor_u_nome)
+                
+                dist_escolhida, tempo_escolhido, rota_final = obter_distancia_real(u_sel['lon'], u_sel['lat'], lon_c, lat_c)
+                dist_sugerida, _, _ = obter_distancia_real(u_sug['lon'], u_sug['lat'], lon_c, lat_c)
 
                 m1, m2 = st.columns(2)
-                m1.metric("Distância Real", f"{dist_real} km")
-                m2.metric("Tempo Est.", f"{tempo_min} min")
+                m1.metric("Distância Real", f"{dist_escolhida} km")
+                m2.metric("Tempo Est.", f"{tempo_escolhido} min")
                 
                 if st.button("✅ Registrar Atendimento", use_container_width=True):
-                    st.session_state['historico'].insert(0, {"Hora": datetime.now().strftime("%H:%M"), "CEP": cep, "Unid": escolha, "KM": dist_real})
-                    # --- EFEITO DE BALÕES AQUI ---
+                    desvio = round(dist_escolhida - dist_sugerida, 2)
+                    st.session_state['historico'].insert(0, {
+                        "Data/Hora": datetime.now().strftime("%d/%m/%Y %H:%M"),
+                        "CEP Cliente": cep,
+                        "Endereço": f"{logra}, {bairro}",
+                        "Unid. Sugerida": melhor_u_nome,
+                        "KM Sugerida": dist_sugerida,
+                        "Unid. Escolhida": escolha,
+                        "KM Escolhida": dist_escolhida,
+                        "Diferença (KM)": desvio,
+                        "Tempo (Min)": tempo_escolhido
+                    })
                     st.balloons()
-                    st.toast(f"Registrado na {escolha}!")
+                    st.toast("Gravado com sucesso!")
 
-                st.dataframe(df_comp[['nome', 'Dist. Reta (km)']], use_container_width=True, hide_index=True, height=450)
+                st.dataframe(df_comp[['nome', 'dist_reta']].rename(columns={'dist_reta': 'Dist. Reta (km)'}), use_container_width=True, hide_index=True, height=400)
 
             with cr:
                 m = folium.Map(location=[lat_c, lon_c], zoom_start=13)
                 folium.Marker([lat_c, lon_c], icon=folium.Icon(color='red', icon='home')).add_to(m)
-                folium.Marker([unidade_f['lat'], unidade_f['lon']], icon=folium.Icon(color='green', icon='plus')).add_to(m)
-                folium.PolyLine([[p[1], p[0]] for p in route_res['features'][0]['geometry']['coordinates']], color="#2E86C1", weight=6).add_to(m)
-                st_folium(m, use_container_width=True, height=620, key="mapa_v84")
+                folium.Marker([u_sel['lat'], u_sel['lon']], icon=folium.Icon(color='green', icon='plus')).add_to(m)
+                if rota_final:
+                    folium.PolyLine([[p[1], p[0]] for p in rota_final['features'][0]['geometry']['coordinates']], color="#2E86C1", weight=6).add_to(m)
+                st_folium(m, use_container_width=True, height=600, key="mapa_v85")
 
-        except Exception as e: st.error(f"Erro: {e}")
+        except Exception as e: st.error(f"Erro no processamento: {e}")
 
-# --- HISTÓRICO ---
+# --- HISTÓRICO COMPLETO ---
 if st.session_state['historico']:
     st.divider()
     df_h = pd.DataFrame(st.session_state['historico'])
     h1, h2 = st.columns([3, 1])
-    with h1: st.subheader("📝 Registros")
+    with h1: st.subheader("📝 Histórico Detalhado de Operação")
     with h2:
         csv = df_h.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("📥 Baixar CSV", csv, "log_tecnolab.csv", "text/csv", use_container_width=True)
+        st.download_button("📥 Exportar Relatório CSV", csv, f"logistica_tecnolab_{datetime.now().strftime('%d%m%Y')}.csv", "text/csv", use_container_width=True)
     st.dataframe(df_h, use_container_width=True, hide_index=True)
