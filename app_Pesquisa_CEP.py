@@ -9,16 +9,42 @@ from streamlit_folium import st_folium
 from datetime import datetime
 
 # --- 1. CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="Tecnolab Logística V8.5", layout="wide", page_icon="🚚")
+st.set_page_config(page_title="Tecnolab Logística V8.6", layout="wide", page_icon="🚚")
 
-# --- CSS RECALIBRADO ---
+# --- CSS ADAPTATIVO (SUPORTE A MODO CLARO E ESCURO) ---
 st.markdown("""
     <style>
     .block-container { padding-top: 3.5rem; padding-bottom: 0rem; }
-    .header-container { border-bottom: 3px solid #2E86C1; padding-bottom: 15px; margin-bottom: 25px; }
-    .titulo-v85 { color: #2E86C1; margin: 0; font-size: 28px; font-weight: bold; }
-    .stTextInput { margin-top: 10px; }
-    [data-testid="stMetric"] { background-color: #f8f9fa; padding: 10px; border-radius: 8px; border: 1px solid #e0e0e0; }
+    
+    /* Título Adaptativo */
+    .titulo-v86 { 
+        color: #2E86C1; 
+        margin: 0; 
+        font-size: 28px; 
+        font-weight: bold; 
+    }
+
+    /* Quadros de Métricas Adaptativos */
+    [data-testid="stMetric"] {
+        background-color: var(--secondary-background-color);
+        padding: 15px;
+        border-radius: 10px;
+        border: 1px solid var(--border-color);
+        box-shadow: 0px 2px 4px rgba(0,0,0,0.1);
+    }
+
+    /* Estilização extra para garantir visibilidade do rótulo do CEP */
+    .stTextInput label {
+        color: var(--text-color) !important;
+        font-weight: bold;
+    }
+
+    /* Linha divisória que respeita o tema */
+    .header-container {
+        border-bottom: 3px solid #2E86C1;
+        padding-bottom: 15px;
+        margin-bottom: 25px;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -43,19 +69,19 @@ if "autenticado" not in st.session_state:
 # --- DADOS ---
 unidades_base = [
     {"nome": "Matriz SBC", "lat": -23.6912, "lon": -46.5594},
-    {"nome": "U2 - SBC", "lat": -23.70601, "lon": -46.54946},
-    {"nome": "U4 - RIB", "lat": -23.709069, "lon": -46.413002},
-    {"nome": "U5 - SAD", "lat": -23.65458, "lon": -46.53554},
-    {"nome": "U6 - MAU", "lat": -23.66669, "lon": -46.45455},
-    {"nome": "U7 - SBC", "lat": -23.66117, "lon": -46.56506},
-    {"nome": "U8 - SBC", "lat": -23.72231, "lon": -46.56675},
-    {"nome": "U9 - SAC", "lat": -23.61659, "lon": -46.56845},
-    {"nome": "U10 - SAD", "lat": -23.6326784, "lon": -46.5021218},
-    {"nome": "U11 - SAD", "lat": -23.65379, "lon": -46.53542},
-    {"nome": "U13 - DIA", "lat": -23.68791, "lon": -46.62192},
-    {"nome": "U14 - MAU", "lat": -23.66884, "lon": -46.45567},
+    {"nome": "U2", "lat": -23.70601, "lon": -46.54946},
+    {"nome": "U4", "lat": -23.709069, "lon": -46.413002},
+    {"nome": "U5", "lat": -23.65458, "lon": -46.53554},
+    {"nome": "U6", "lat": -23.66669, "lon": -46.45455},
+    {"nome": "U7", "lat": -23.66117, "lon": -46.56506},
+    {"nome": "U8", "lat": -23.72231, "lon": -46.56675},
+    {"nome": "U9", "lat": -23.61659, "lon": -46.56845},
+    {"nome": "U10", "lat": -23.6326784, "lon": -46.5021218},
+    {"nome": "U11", "lat": -23.65379, "lon": -46.53542},
+    {"nome": "U13", "lat": -23.68791, "lon": -46.62192},
+    {"nome": "U14", "lat": -23.66884, "lon": -46.45567},
 ]
-PARES_PROXIMOS = [{"U6 - MAU", "U14 - MAU"}, {"U11 - SAD", "U5 - SAD"}]
+PARES_PROXIMOS = [{"U6", "U14"}, {"U11", "U5"}]
 
 def calcular_distancia_reta(lat1, lon1, lat2, lon2):
     R = 6371
@@ -78,7 +104,7 @@ with c_logo:
     try: st.image("furgao_tecnolab.png", width=220)
     except: st.warning("🚚 Imagem não encontrada")
 with c_tit:
-    st.markdown('<h1 class="titulo-v85">Painel Localizador CEP Cliente x Unidade Tecnolab mais próxima</h1>', unsafe_allow_html=True)
+    st.markdown('<div class="header-container"><h1 class="titulo-v86">Painel Localizador CEP Cliente x Unidade Tecnolab mais próxima</h1></div>', unsafe_allow_html=True)
 
 if 'historico' not in st.session_state: st.session_state['historico'] = []
 
@@ -95,13 +121,10 @@ if cep and len(cep.replace("-","")) == 8:
             coords = geo_res['features'][0]['geometry']['coordinates']
             lat_c, lon_c = coords[1], coords[0]
             
-            # Cálculo de Unidade Sugerida
             for u in unidades_base: u['dist_reta'] = calcular_distancia_reta(lat_c, lon_c, u['lat'], u['lon'])
             ordenadas = sorted(unidades_base, key=lambda x: x['dist_reta'])
             
-            # Lógica de Finalistas para Sugestão
-            finalistas = []
-            vistos = set()
+            finalistas, vistos = [], set()
             for u in ordenadas:
                 if len(finalistas) >= 3: break
                 par = next((g for g in PARES_PROXIMOS if u['nome'] in g), None)
@@ -121,7 +144,7 @@ if cep and len(cep.replace("-","")) == 8:
             cl, cr = st.columns([1, 1.4])
             with cl:
                 st.info(f"📍 **Endereço:** {logra}, {bairro}")
-                escolha = st.selectbox("Selecione a Unidade (Ajuste se necessário):", df_comp['nome'].tolist(), index=df_comp['nome'].tolist().index(melhor_u_nome))
+                escolha = st.selectbox("Selecione a Unidade:", df_comp['nome'].tolist(), index=df_comp['nome'].tolist().index(melhor_u_nome))
                 
                 u_sel = next(u for u in unidades_base if u["nome"] == escolha)
                 u_sug = next(u for u in unidades_base if u["nome"] == melhor_u_nome)
@@ -137,19 +160,17 @@ if cep and len(cep.replace("-","")) == 8:
                     desvio = round(dist_escolhida - dist_sugerida, 2)
                     st.session_state['historico'].insert(0, {
                         "Data/Hora": datetime.now().strftime("%d/%m/%Y %H:%M"),
-                        "CEP Cliente": cep,
-                        "Endereço": f"{logra}, {bairro}",
+                        "CEP": cep,
                         "Unid. Sugerida": melhor_u_nome,
-                        "KM Sugerida": dist_sugerida,
                         "Unid. Escolhida": escolha,
-                        "KM Escolhida": dist_escolhida,
+                        "KM Real": dist_escolhida,
                         "Diferença (KM)": desvio,
                         "Tempo (Min)": tempo_escolhido
                     })
                     st.balloons()
-                    st.toast("Gravado com sucesso!")
+                    st.toast("Gravado!")
 
-                st.dataframe(df_comp[['nome', 'dist_reta']].rename(columns={'dist_reta': 'Dist. Reta (km)'}), use_container_width=True, hide_index=True, height=400)
+                st.dataframe(df_comp[['nome', 'dist_reta']].rename(columns={'dist_reta': 'Km Reta'}), use_container_width=True, hide_index=True, height=400)
 
             with cr:
                 m = folium.Map(location=[lat_c, lon_c], zoom_start=13)
@@ -157,17 +178,17 @@ if cep and len(cep.replace("-","")) == 8:
                 folium.Marker([u_sel['lat'], u_sel['lon']], icon=folium.Icon(color='green', icon='plus')).add_to(m)
                 if rota_final:
                     folium.PolyLine([[p[1], p[0]] for p in rota_final['features'][0]['geometry']['coordinates']], color="#2E86C1", weight=6).add_to(m)
-                st_folium(m, use_container_width=True, height=600, key="mapa_v85")
+                st_folium(m, use_container_width=True, height=600, key="mapa_v86")
 
-        except Exception as e: st.error(f"Erro no processamento: {e}")
+        except Exception as e: st.error(f"Erro: {e}")
 
-# --- HISTÓRICO COMPLETO ---
+# --- HISTÓRICO ---
 if st.session_state['historico']:
     st.divider()
     df_h = pd.DataFrame(st.session_state['historico'])
     h1, h2 = st.columns([3, 1])
-    with h1: st.subheader("📝 Histórico Detalhado de Operação")
+    with h1: st.subheader("📝 Histórico Operacional")
     with h2:
         csv = df_h.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("📥 Exportar Relatório CSV", csv, f"logistica_tecnolab_{datetime.now().strftime('%d%m%Y')}.csv", "text/csv", use_container_width=True)
+        st.download_button("📥 Exportar CSV", csv, "relatorio_tecnolab.csv", "text/csv", use_container_width=True)
     st.dataframe(df_h, use_container_width=True, hide_index=True)
