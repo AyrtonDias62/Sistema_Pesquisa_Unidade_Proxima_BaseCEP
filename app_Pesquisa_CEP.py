@@ -104,7 +104,7 @@ with c_logo:
     try: st.image("furgao_tecnolab.png", width=220)
     except: st.warning("🚚 Imagem não encontrada")
 with c_tit:
-    st.markdown('<h1 class="titulo-v84">Painel Logístico Tecnolab</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="titulo-v84">Painel Localizador CEP Cliente x Unidade Tecnolab mais próxima</h1>', unsafe_allow_html=True)
 
 if 'historico' not in st.session_state: st.session_state['historico'] = []
 
