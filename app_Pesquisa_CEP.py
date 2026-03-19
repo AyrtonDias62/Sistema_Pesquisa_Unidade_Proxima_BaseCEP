@@ -124,7 +124,7 @@ def definir_unidade_sugerida(lat_c, lon_c, unidades):
 # Cabeçalho customizado com HTML/CSS para garantir alinhamento
 st.markdown(f"""
     <div class="header-wrapper">
-        <img src="https://raw.githubusercontent.com/SeuUsuario/SeuRepo/main/ImagemCarroTecno.png" width="120">
+        <img src="https://raw.githubusercontent.com/SeuUsuario/SeuRepo/main/furgao_tecnolab.png" width="120">
         <h1 class="titulo-v79">Painel Localizador CEP Cliente x Unidade Tecnolab mais próxima</h1>
     </div>
     """, unsafe_allow_html=True)
