@@ -8,8 +8,28 @@ import folium
 from streamlit_folium import st_folium
 from datetime import datetime
 
-# --- CONFIGURAÇÃO ---
-st.set_page_config(page_title="Sistema Logístico Tecnolab - V7.3", layout="wide")
+# --- 1. CONFIGURAÇÃO DA PÁGINA ---
+st.set_page_config(page_title="Tecnolab Log V7.4", layout="wide")
+
+# --- CSS PARA GANHO DE ESPAÇO VERTICAL ---
+st.markdown("""
+    <style>
+    .block-container {
+        padding-top: 1rem; 
+        padding-bottom: 0rem;
+        margin-top: 0rem;
+    }
+    [data-testid="stMetric"] {
+        background-color: var(--secondary-background-color);
+        padding: 5px 15px;
+        border-radius: 10px;
+    }
+    h2 {
+        margin-top: -10px;
+        padding-top: 0px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 try:
     api_key = st.secrets["ORS_KEY"]
@@ -20,15 +40,15 @@ except Exception as e:
 
 # --- LOGIN ---
 if "autenticado" not in st.session_state:
-    st.title("🔐 Acesso ao Sistema Tecnolab")
-    senha = st.text_input("Digite a senha:", type="password")
+    st.title("🔐 Acesso Tecnolab")
+    senha = st.text_input("Senha:", type="password")
     if st.button("Entrar"):
         if senha == "123456": 
             st.session_state["autenticado"] = True
             st.rerun()
     st.stop()
 
-# --- BASE DE UNIDADES ---
+# --- BASE DE UNIDADES E PARES ---
 unidades_base = [
     {"nome": "Matriz", "lat": -23.6912, "lon": -46.5594},
     {"nome": "U2", "lat": -23.70601, "lon": -46.54946},
@@ -44,11 +64,7 @@ unidades_base = [
     {"nome": "U14", "lat": -23.66884, "lon": -46.45567},
 ]
 
-# Definição dos Pares Próximos (Grupos)
-PARES_PROXIMOS = [
-    {"U6", "U14"},
-    {"U11", "U5"}
-]
+PARES_PROXIMOS = [{"U6", "U14"}, {"U11", "U5"}]
 
 def calcular_distancia_reta(lat1, lon1, lat2, lon2):
     R = 6371
@@ -58,127 +74,89 @@ def calcular_distancia_reta(lat1, lon1, lat2, lon2):
 
 @st.cache_data(show_spinner=False)
 def definir_unidade_sugerida_cache(lat_c, lon_c, unidades):
-    # 1. Calcula distância reta para todas
     for u in unidades:
         u['dist_reta'] = calcular_distancia_reta(lat_c, lon_c, u['lat'], u['lon'])
-    
     ordenadas = sorted(unidades, key=lambda x: x['dist_reta'])
     
-    # 2. Lógica de Filtragem de Pares (Deduplicação)
-    finalistas = []
-    nomes_no_grupo_ja_vistos = set()
-
+    finalistas, grupos_vistos = [], set()
     for u in ordenadas:
-        if len(finalistas) >= 3:
-            break
-            
-        # Verifica se a unidade pertence a um par "conflitante"
-        pertence_a_grupo = False
+        if len(finalistas) >= 3: break
+        is_par = False
         for grupo in PARES_PROXIMOS:
             if u['nome'] in grupo:
-                pertence_a_grupo = True
-                # Se nenhuma outra unidade deste grupo foi adicionada, adicionamos esta
-                id_grupo = tuple(sorted(list(grupo)))
-                if id_grupo not in nomes_no_grupo_ja_vistos:
+                is_par = True
+                id_g = tuple(sorted(list(grupo)))
+                if id_g not in grupos_vistos:
                     finalistas.append(u)
-                    nomes_no_grupo_ja_vistos.add(id_grupo)
+                    grupos_vistos.add(id_g)
                 break
-        
-        # Se não pertence a nenhum grupo crítico, adiciona normalmente
-        if not pertence_a_grupo:
-            finalistas.append(u)
+        if not is_par: finalistas.append(u)
 
-    # 3. Avalia Rota Real apenas para as finalistas filtradas
-    melhor_u = None
-    menor_km_real = float('inf')
-    
+    melhor_u, menor_km = None, float('inf')
     for cand in finalistas:
         try:
-            route = ors_client.directions(
-                coordinates=((cand['lon'], cand['lat']), (lon_c, lat_c)),
-                profile='driving-car', format='geojson'
-            )
-            dist_km = route['features'][0]['properties']['summary']['distance'] / 1000
-            if dist_km < menor_km_real:
-                menor_km_real = dist_km
-                melhor_u = cand['nome']
+            route = ors_client.directions(coordinates=((cand['lon'], cand['lat']), (lon_c, lat_c)), profile='driving-car', format='geojson')
+            d = route['features'][0]['properties']['summary']['distance']
+            if d < menor_km: menor_km = d; melhor_u = cand['nome']
         except: continue
-            
     return melhor_u if melhor_u else finalistas[0]['nome']
 
-# --- INTERFACE ---
-st.title("📍 Painel Logístico Tecnolab")
+# --- HEADER COMPACTO ---
+st.markdown(f"""
+    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 5px;">
+        <h2 style="color: #2E86C1; margin: 0; font-size: 24px;">📍 Painel Logístico Tecnolab</h2>
+    </div>
+    """, unsafe_allow_html=True)
 
-if 'historico' not in st.session_state:
-    st.session_state['historico'] = []
+if 'historico' not in st.session_state: st.session_state['historico'] = []
 
-cep = st.text_input("CEP do Cliente:", placeholder="Ex: 09134-740", key="input_cep")
+# Campo de CEP mais discreto
+cep = st.text_input("CEP Cliente:", placeholder="00000-000", key="input_cep", label_visibility="collapsed")
 
 if cep and len(cep.replace("-","")) == 8:
     r = requests.get(f"https://viacep.com.br/ws/{cep.replace('-','')}/json/").json()
-    
     if "erro" not in r:
         logra, bairro, cidade = r.get('logradouro','N/A'), r.get('bairro','N/A'), r.get('localidade','N/A')
-        st.info(f"📍 Endereço: {logra} - {bairro}, {cidade}")
-
+        
         try:
-            # Geocodificação
             geo_res = ors_client.pelias_search(text=f"{logra}, {cidade}, SP, Brasil", size=1, focus_point=[-46.55, -23.69])
-            if geo_res and len(geo_res['features']) > 0:
-                coords = geo_res['features'][0]['geometry']['coordinates']
-                lat_c, lon_c = coords[1], coords[0]
-            else:
-                geo_cep = ors_client.pelias_search(text=f"{cep}, Brasil", size=1)
-                coords = geo_cep['features'][0]['geometry']['coordinates']
-                lat_c, lon_c = coords[1], coords[0]
+            coords = geo_res['features'][0]['geometry']['coordinates'] if geo_res['features'] else [0,0]
+            lat_c, lon_c = coords[1], coords[0]
             
-            # Sugestão Inteligente (com Deduplicação de Pares)
             sugerida_nome = definir_unidade_sugerida_cache(lat_c, lon_c, unidades_base)
-
-            # Tabela Comparativa
-            for u in unidades_base:
-                u['Dist. Reta (km)'] = calcular_distancia_reta(lat_c, lon_c, u['lat'], u['lon'])
+            for u in unidades_base: u['Dist. Reta (km)'] = calcular_distancia_reta(lat_c, lon_c, u['lat'], u['lon'])
             
-            df_comparativo = pd.DataFrame(unidades_base).sort_values('Dist. Reta (km)')
-            lista_nomes = df_comparativo['nome'].tolist()
-            idx_sugerida = lista_nomes.index(sugerida_nome) if sugerida_nome in lista_nomes else 0
-
-            col_left, col_right = st.columns([1, 1.5])
+            df_comp = pd.DataFrame(unidades_base).sort_values('Dist. Reta (km)')
+            
+            # --- CORPO PRINCIPAL ---
+            col_left, col_right = st.columns([1, 1.8])
 
             with col_left:
-                st.subheader("🏁 Atendimento")
-                escolha = st.selectbox("Unidade Selecionada:", lista_nomes, index=idx_sugerida)
+                st.markdown(f"**Endereço:** {logra}, {bairro}")
+                escolha = st.selectbox("Unidade:", df_comp['nome'].tolist(), index=df_comp['nome'].tolist().index(sugerida_nome))
                 unidade_f = next(item for item in unidades_base if item["nome"] == escolha)
 
-                # Rota Final
-                route_res = ors_client.directions(
-                    coordinates=((unidade_f['lon'], unidade_f['lat']), (lon_c, lat_c)),
-                    profile='driving-car', format='geojson'
-                )
+                route_res = ors_client.directions(coordinates=((unidade_f['lon'], unidade_f['lat']), (lon_c, lat_c)), profile='driving-car', format='geojson')
                 dist_real = round(route_res['features'][0]['properties']['summary']['distance'] / 1000, 2)
-                tempo_min = round(route_res['features'][0]['properties']['summary']['duration'] / 60, 0)
-                caminho = [[p[1], p[0]] for p in route_res['features'][0]['geometry']['coordinates']]
+                tempo_min = int(route_res['features'][0]['properties']['summary']['duration'] / 60)
 
-                st.metric("Distância Real", f"{dist_real} km", delta=f"{int(tempo_min)} min", delta_color="normal")
+                st.metric("Caminho Real", f"{dist_real} km", delta=f"{tempo_min} min")
                 
-                if st.button("✅ Registrar Atendimento", use_container_width=True):
-                    st.session_state['historico'].insert(0, {
-                        "Horário": datetime.now().strftime("%H:%M"),
-                        "CEP": cep,
-                        "Unid. Escolhida": escolha,
-                        "Distância": f"{dist_real} km"
-                    })
-                    st.success("Registrado!")
+                if st.button("✅ Registrar", use_container_width=True):
+                    st.session_state['historico'].insert(0, {"Hora": datetime.now().strftime("%H:%M"), "CEP": cep, "Unid": escolha, "KM": dist_real})
+                    st.success("Salvo!")
 
-                st.divider()
-                st.dataframe(df_comparativo[['nome', 'Dist. Reta (km)']], use_container_width=True, hide_index=True)
+                st.dataframe(df_comp[['nome', 'Dist. Reta (km)']], use_container_width=True, hide_index=True, height=180)
 
             with col_right:
                 m = folium.Map(location=[lat_c, lon_c], zoom_start=12)
                 folium.Marker([lat_c, lon_c], icon=folium.Icon(color='red')).add_to(m)
                 folium.Marker([unidade_f['lat'], unidade_f['lon']], icon=folium.Icon(color='green')).add_to(m)
-                folium.PolyLine(caminho, color="#2E86C1", weight=5).add_to(m)
-                st_folium(m, use_container_width=True, height=500, key="mapa_tecnolab_v73")
+                folium.PolyLine([[p[1], p[0]] for p in route_res['features'][0]['geometry']['coordinates']], color="#2E86C1", weight=5).add_to(m)
+                st_folium(m, use_container_width=True, height=420, key="mapa_v74")
 
-        except Exception as e:
-            st.error(f"Erro: {e}")
+        except Exception as e: st.error(f"Erro: {e}")
+    else: st.error("CEP inválido.")
+
+if st.session_state.get('historico'):
+    st.table(pd.DataFrame(st.session_state['historico']).head(3))
