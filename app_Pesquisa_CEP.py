@@ -160,11 +160,14 @@ if cep and len(cep.replace("-","")) == 8:
                     desvio = round(dist_escolhida - dist_sugerida, 2)
                     st.session_state['historico'].insert(0, {
                         "Data/Hora": datetime.now().strftime("%d/%m/%Y %H:%M"),
-                        "CEP": cep,
+                        "CEP Cliente": cep,
+                        "Endereço": logra,
+                        "Bairro": bairro,
+                        "Cidade": cidade,
                         "Unid. Sugerida": melhor_u_nome,
                         "Unid. Escolhida": escolha,
                         "KM Real": dist_escolhida,
-                        "Diferença (KM)": desvio,
+                        "Dif.(KM)": desvio,
                         "Tempo (Min)": tempo_escolhido
                     })
                     st.balloons()
