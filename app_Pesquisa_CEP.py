@@ -69,19 +69,19 @@ if "autenticado" not in st.session_state:
 # --- DADOS ---
 unidades_base = [
     {"nome": "Matriz SBC", "lat": -23.6912, "lon": -46.5594},
-    {"nome": "U2", "lat": -23.70601, "lon": -46.54946},
-    {"nome": "U4", "lat": -23.709069, "lon": -46.413002},
-    {"nome": "U5", "lat": -23.65458, "lon": -46.53554},
-    {"nome": "U6", "lat": -23.66669, "lon": -46.45455},
-    {"nome": "U7", "lat": -23.66117, "lon": -46.56506},
-    {"nome": "U8", "lat": -23.72231, "lon": -46.56675},
-    {"nome": "U9", "lat": -23.61659, "lon": -46.56845},
-    {"nome": "U10", "lat": -23.6326784, "lon": -46.5021218},
-    {"nome": "U11", "lat": -23.65379, "lon": -46.53542},
-    {"nome": "U13", "lat": -23.68791, "lon": -46.62192},
-    {"nome": "U14", "lat": -23.66884, "lon": -46.45567},
+    {"nome": "U2 - SBC", "lat": -23.70601, "lon": -46.54946},
+    {"nome": "U4 - RIB", "lat": -23.709069, "lon": -46.413002},
+    {"nome": "U5 - SAD", "lat": -23.65458, "lon": -46.53554},
+    {"nome": "U6 - MAU", "lat": -23.66669, "lon": -46.45455},
+    {"nome": "U7 - SBC", "lat": -23.66117, "lon": -46.56506},
+    {"nome": "U8 - SBC", "lat": -23.72231, "lon": -46.56675},
+    {"nome": "U9 - SAC", "lat": -23.61659, "lon": -46.56845},
+    {"nome": "U10 - SAD", "lat": -23.6326784, "lon": -46.5021218},
+    {"nome": "U11 - SAD", "lat": -23.65379, "lon": -46.53542},
+    {"nome": "U13 - DIA", "lat": -23.68791, "lon": -46.62192},
+    {"nome": "U14 - MAU", "lat": -23.66884, "lon": -46.45567},
 ]
-PARES_PROXIMOS = [{"U6", "U14"}, {"U11", "U5"}]
+PARES_PROXIMOS = [{"U6 - MAU", "U14 - MAU"}, {"U11 - SAC", "U5 - SAC"}]
 
 def calcular_distancia_reta(lat1, lon1, lat2, lon2):
     R = 6371
