@@ -93,13 +93,13 @@ def definir_unidade_sugerida(lat_c, lon_c, unidades):
         except: continue
     return melhor_u if melhor_u else finalistas[0]['nome']
 
-# --- INTERFACE ---
-col_logo, col_titulo = st.columns([1, 4])
-with col_logo:
-    try: st.image("ImagemCarroTecno.png", width=140)
-    except: st.write("🚗")
-with col_titulo:
-    st.markdown('<h1 class="titulo-v8">Painel Logístico Tecnolab</h1>', unsafe_allow_html=True)
+# --- CABEÇALHO COM LOGO LOCAL ---
+col_h1, col_h2 = st.columns([1, 4])
+with col_h1:
+    # O Streamlit busca o arquivo na mesma pasta do script
+    st.image("furgao_tecnolab.png", width=150)
+with col_h2:
+    st.markdown('<h1 class="titulo-v79">Painel Localizador CEP Cliente x Unidade Tecnolab mais próxima</h1>', unsafe_allow_html=True)
 
 cep = st.text_input("CEP do Cliente:", placeholder="00000-000", key="input_cep")
 
