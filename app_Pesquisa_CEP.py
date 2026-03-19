@@ -9,53 +9,60 @@ from streamlit_folium import st_folium
 from datetime import datetime
 
 # --- 1. CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="Tecnolab Log V7.7", layout="wide")
+st.set_page_config(page_title="Tecnolab Log V7.8", layout="wide")
 
-# --- CSS RECALIBRADO (TÍTULO TOTALMENTE VISÍVEL) ---
+# --- CSS RECALIBRADO (CORREÇÃO DE CORTE E ESPAÇAMENTO) ---
 st.markdown("""
     <style>
-    /* Espaço de segurança no topo para não cortar o título */
+    /* Ajuste para não cortar o título e dar respiro ao topo */
     .block-container {
-        padding-top: 2rem; 
+        padding-top: 2.5rem; 
         padding-bottom: 0rem;
     }
-    /* Estilo das métricas compactas */
-    [data-testid="stMetric"] {
-        background-color: #f8f9fa;
-        padding: 5px 10px;
-        border-radius: 8px;
-        border: 1px solid #e0e0e0;
+    
+    /* Estilo do Título com linha divisória clara */
+    .header-container {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        border-bottom: 3px solid #2E86C1;
+        padding-bottom: 15px;
+        margin-bottom: 25px;
     }
-    [data-testid="stMetricValue"] {
-        font-size: 1.1rem !important;
-    }
-    .titulo-v77 {
+    
+    .titulo-v78 {
         color: #2E86C1;
-        margin-top: 0px;
-        margin-bottom: 10px;
-        padding-bottom: 8px;
-        border-bottom: 2px solid #2E86C1;
-        font-size: 26px;
+        margin: 0;
+        font-size: 28px;
         font-weight: bold;
     }
-    /* Reduz distância entre elementos internos */
-    div[data-testid="stVerticalBlock"] > div {
-        margin-bottom: -8px;
+
+    /* Correção para o rótulo do CEP não encavalar na linha */
+    .stTextInput {
+        margin-top: 10px;
+    }
+
+    [data-testid="stMetric"] {
+        background-color: #f8f9fa;
+        padding: 8px;
+        border-radius: 8px;
+        border: 1px solid #e0e0e0;
     }
     </style>
     """, unsafe_allow_html=True)
 
+# --- CLIENTE ORS ---
 try:
     api_key = st.secrets["ORS_KEY"]
     ors_client = client.Client(key=api_key)
-except Exception as e:
-    st.error("Erro na ORS_KEY das Secrets.")
+except:
+    st.error("Erro na ORS_KEY.")
     st.stop()
 
 # --- LOGIN ---
 if "autenticado" not in st.session_state:
-    st.markdown('<h2 class="titulo-v77">🔐 Acesso ao Sistema</h2>', unsafe_allow_html=True)
-    senha = st.text_input("Senha de Acesso:", type="password")
+    st.title("🔐 Acesso Tecnolab")
+    senha = st.text_input("Senha:", type="password")
     if st.button("Entrar"):
         if senha == "123456": 
             st.session_state["autenticado"] = True
@@ -77,7 +84,6 @@ unidades_base = [
     {"nome": "U13", "lat": -23.68791, "lon": -46.62192},
     {"nome": "U14", "lat": -23.66884, "lon": -46.45567},
 ]
-
 PARES_PROXIMOS = [{"U6", "U14"}, {"U11", "U5"}]
 
 def calcular_distancia_reta(lat1, lon1, lat2, lon2):
@@ -88,8 +94,7 @@ def calcular_distancia_reta(lat1, lon1, lat2, lon2):
 
 @st.cache_data(show_spinner=False)
 def definir_unidade_sugerida_cache(lat_c, lon_c, unidades):
-    for u in unidades:
-        u['dist_reta'] = calcular_distancia_reta(lat_c, lon_c, u['lat'], u['lon'])
+    for u in unidades: u['dist_reta'] = calcular_distancia_reta(lat_c, lon_c, u['lat'], u['lon'])
     ordenadas = sorted(unidades, key=lambda x: x['dist_reta'])
     finalistas, grupos_vistos = [], set()
     for u in ordenadas:
@@ -103,6 +108,7 @@ def definir_unidade_sugerida_cache(lat_c, lon_c, unidades):
                     finalistas.append(u); grupos_vistos.add(id_g)
                 break
         if not is_par: finalistas.append(u)
+    
     melhor_u, menor_km = None, float('inf')
     for cand in finalistas:
         try:
@@ -112,12 +118,18 @@ def definir_unidade_sugerida_cache(lat_c, lon_c, unidades):
         except: continue
     return melhor_u if melhor_u else finalistas[0]['nome']
 
-# --- INTERFACE ---
-st.markdown('<h2 class="titulo-v77">📍 Painel Logístico Tecnolab</h2>', unsafe_allow_html=True)
+# --- CABEÇALHO COM LOGO/CARRO ---
+col_h1, col_h2 = st.columns([1, 4])
+with col_h1:
+    # Substitua pelo caminho correto da imagem se necessário
+    st.image("ImagemCarroTecno.png", width=150)
+with col_h2:
+    st.markdown('<h1 class="titulo-v78">Painel Logístico Tecnolab</h1>', unsafe_allow_html=True)
 
 if 'historico' not in st.session_state: st.session_state['historico'] = []
 
-cep = st.text_input("CEP Cliente:", placeholder="00000-000", key="input_cep")
+# Campo de entrada
+cep = st.text_input("CEP do Cliente:", placeholder="Ex: 09134-740", key="input_cep")
 
 if cep and len(cep.replace("-","")) == 8:
     r = requests.get(f"https://viacep.com.br/ws/{cep.replace('-','')}/json/").json()
@@ -131,37 +143,34 @@ if cep and len(cep.replace("-","")) == 8:
             
             sugerida_nome = definir_unidade_sugerida_cache(lat_c, lon_c, unidades_base)
             for u in unidades_base: u['Dist. Reta (km)'] = calcular_distancia_reta(lat_c, lon_c, u['lat'], u['lon'])
-            
             df_comp = pd.DataFrame(unidades_base).sort_values('Dist. Reta (km)')
             
             col_left, col_right = st.columns([1, 1.4])
 
             with col_left:
-                st.caption(f"🏠 {logra}, {bairro} - {cidade}")
-                escolha = st.selectbox("Selecione a Unidade:", df_comp['nome'].tolist(), index=df_comp['nome'].tolist().index(sugerida_nome))
+                st.info(f"📍 {logra}, {bairro}")
+                escolha = st.selectbox("Unidade:", df_comp['nome'].tolist(), index=df_comp['nome'].tolist().index(sugerida_nome))
                 unidade_f = next(item for item in unidades_base if item["nome"] == escolha)
 
                 route_res = ors_client.directions(coordinates=((unidade_f['lon'], unidade_f['lat']), (lon_c, lat_c)), profile='driving-car', format='geojson')
                 dist_real = round(route_res['features'][0]['properties']['summary']['distance'] / 1000, 2)
                 tempo_min = int(route_res['features'][0]['properties']['summary']['duration'] / 60)
 
-                # Métricas lado a lado
                 m1, m2 = st.columns(2)
                 m1.metric("Distância", f"{dist_real} km")
-                m2.metric("Tempo", f"{tempo_min} min")
+                m2.metric("Tempo Est.", f"{tempo_min} min")
                 
-                if st.button("✅ Registrar Atendimento", use_container_width=True):
+                if st.button("✅ Registrar", use_container_width=True):
                     st.session_state['historico'].insert(0, {"Hora": datetime.now().strftime("%H:%M"), "CEP": cep, "Unid": escolha, "KM": dist_real})
-                    st.toast("Sucesso!")
+                    st.toast("Registrado!")
 
-                # Quadro total (12 linhas visíveis)
                 st.dataframe(df_comp[['nome', 'Dist. Reta (km)']], use_container_width=True, hide_index=True, height=450)
 
             with col_right:
                 m = folium.Map(location=[lat_c, lon_c], zoom_start=12)
                 folium.Marker([lat_c, lon_c], icon=folium.Icon(color='red', icon='home')).add_to(m)
                 folium.Marker([unidade_f['lat'], unidade_f['lon']], icon=folium.Icon(color='green', icon='plus')).add_to(m)
-                folium.PolyLine([[p[1], p[0]] for p in route_res['features'][0]['geometry']['coordinates']], color="#2E86C1", weight=6, opacity=0.8).add_to(m)
-                st_folium(m, use_container_width=True, height=620, key="mapa_v77")
+                folium.PolyLine([[p[1], p[0]] for p in route_res['features'][0]['geometry']['coordinates']], color="#2E86C1", weight=6).add_to(m)
+                st_folium(m, use_container_width=True, height=620, key="mapa_v78")
 
         except Exception as e: st.error(f"Erro: {e}")
