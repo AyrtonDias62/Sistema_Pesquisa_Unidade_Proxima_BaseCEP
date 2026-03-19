@@ -24,7 +24,7 @@ st.markdown("""
     .header-wrapper {
         display: flex;
         align-items: center;
-        border-bottom: 3px solid #2E86C1;
+        border-bottom: 3px solid #28a745;
         padding-bottom: 15px;
         margin-bottom: 20px;
     }
