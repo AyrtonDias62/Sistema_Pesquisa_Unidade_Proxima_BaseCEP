@@ -20,7 +20,7 @@ st.markdown("""
     .titulo-v86 { 
         color: #2E86C1; 
         margin: 0; 
-        font-size: 20px; 
+        font-size: 10px; 
         font-weight: bold; 
     }
 
