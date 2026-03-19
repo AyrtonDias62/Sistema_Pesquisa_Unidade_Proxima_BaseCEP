@@ -20,7 +20,7 @@ st.markdown("""
     .titulo-v86 { 
         color: #2E86C1; 
         margin: 0; 
-        font-size: 10px; 
+        font-size: 28px; 
         font-weight: bold; 
     }
 
@@ -104,7 +104,7 @@ with c_logo:
     try: st.image("furgao_tecnolab.png", width=220)
     except: st.warning("🚚 Imagem não encontrada")
 with c_tit:
-    st.markdown('<div class="header-container"><h1 class="titulo-v86">Localizador CEP Cliente x Un. Tecnolab mais próxima...</h1></div>', unsafe_allow_html=True)
+    st.markdown('<div class="header-container"><h1 class="titulo-v86">Localizador CEP Cliente x Un. Tecnolab</h1></div>', unsafe_allow_html=True)
 
 if 'historico' not in st.session_state: st.session_state['historico'] = []
 
