@@ -9,7 +9,7 @@ from streamlit_folium import st_folium
 from datetime import datetime
 
 # --- 1. CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="Tecnolab Logística V8.6", layout="wide", page_icon="🚚")
+st.set_page_config(page_title="Tecnolab Logística V8.7", layout="wide", page_icon="🚚")
 
 # --- CSS ADAPTATIVO (SUPORTE A MODO CLARO E ESCURO) ---
 st.markdown("""
