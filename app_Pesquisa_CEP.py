@@ -117,21 +117,7 @@ if cep and len(cep.replace("-","")) == 8:
         logra, bairro, cidade = r.get('logradouro','N/A'), r.get('bairro','N/A'), r.get('localidade','N/A')
         
         try:
-            # Delimitando a busca (Grande SP e Litoral) para evitar deriva para o interior (ex: Panorama)
-            # Retângulo aproximado: [min_lon, min_lat, max_lon, max_lat]
-            fronteira_sp = [-47.50, -24.50, -45.50, -23.00] 
-            
-            geo_res = ors_client.pelias_search(
-                text=f"{logra}, {cidade}, SP, Brasil", 
-                size=1, 
-                focus_point=[-46.5594, -23.6912],
-                boundary_rect={
-                    "min_lon": fronteira_sp[0],
-                    "min_lat": fronteira_sp[1],
-                    "max_lon": fronteira_sp[2],
-                    "max_lat": fronteira_sp[3]
-                }
-            )
+            geo_res = ors_client.pelias_search(text=f"{logra}, {cidade}, SP, Brasil", size=1, focus_point=[-46.5594, -23.6912])
             coords = geo_res['features'][0]['geometry']['coordinates']
             lat_c, lon_c = coords[1], coords[0]    
             
