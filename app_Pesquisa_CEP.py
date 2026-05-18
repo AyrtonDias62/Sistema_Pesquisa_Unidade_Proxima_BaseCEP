@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import math
 import re
+import unicodedata
 import requests
 import openrouteservice
 from openrouteservice import client
@@ -10,14 +11,13 @@ from streamlit_folium import st_folium
 from datetime import datetime
 
 # --- 1. CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="Tecnolab Logística V8.9", layout="wide", page_icon="🚚")
+st.set_page_config(page_title="Tecnolab Logística V9.0", layout="wide", page_icon="🚚")
 
 # --- CSS ADAPTATIVO (SUPORTE A MODO CLARO E ESCURO) ---
 st.markdown("""
     <style>
     .block-container { padding-top: 3.5rem; padding-bottom: 0rem; }
 
-    /* Título Adaptativo */
     .titulo-v86 {
         color: #2E86C1;
         margin: 0;
@@ -25,7 +25,6 @@ st.markdown("""
         font-weight: bold;
     }
 
-    /* Quadros de Métricas Adaptativos */
     [data-testid="stMetric"] {
         background-color: var(--secondary-background-color);
         padding: 15px;
@@ -34,13 +33,11 @@ st.markdown("""
         box-shadow: 0px 2px 4px rgba(0,0,0,0.1);
     }
 
-    /* Estilização extra para garantir visibilidade do rótulo do CEP */
     .stTextInput label {
         color: var(--text-color) !important;
         font-weight: bold;
     }
 
-    /* Linha divisória que respeita o tema */
     .header-container {
         border-bottom: 3px solid #2E86C1;
         padding-bottom: 15px;
@@ -58,24 +55,111 @@ except Exception as e:
     st.stop()
 
 
+# --- CORREÇÕES MANUAIS DE GEOCODIFICAÇÃO ---
+# Use este dicionário para CEPs em que o geocodificador posiciona o marcador em ponto incorreto.
+# Formato: "CEP sem hífen": {"lat": latitude, "lon": longitude, "observacao": "texto opcional"}
+COORDENADAS_CEP_CORRIGIDAS = {
+    "09666000": {
+        "lat": -23.6584497,
+        "lon": -46.6063854,
+        "observacao": "Correção manual: CEP 09666-000 / Rua Santos / Taboão / São Bernardo do Campo"
+    }
+}
+
+
 # --- FUNÇÕES DE APOIO ---
 def normalizar_cep(cep: str) -> str:
     """Mantém apenas os dígitos do CEP."""
     return re.sub(r"\D", "", str(cep or ""))
 
 
+def normalizar_texto(texto: str) -> str:
+    """Remove acentos, converte para minúsculas e reduz espaços."""
+    texto = str(texto or "").strip().lower()
+    texto = unicodedata.normalize("NFKD", texto)
+    texto = "".join(ch for ch in texto if not unicodedata.combining(ch))
+    texto = re.sub(r"[^a-z0-9\s]", " ", texto)
+    texto = re.sub(r"\s+", " ", texto).strip()
+    return texto
+
+
+def texto_valido(valor) -> bool:
+    return bool(valor) and str(valor).strip().upper() not in {"N/A", "NONE", "NULL", "NAN"}
+
+
+def coordenada_valida(lat, lon) -> bool:
+    try:
+        lat = float(lat)
+        lon = float(lon)
+    except (TypeError, ValueError):
+        return False
+
+    # Limite amplo do Brasil. Evita coordenadas invertidas ou resultados fora do país.
+    return -34.0 <= lat <= 6.0 and -74.0 <= lon <= -34.0
+
+
+def extrair_coordenadas_brasilapi_v2(dados: dict):
+    """Extrai latitude/longitude quando o endpoint CEP V2 da BrasilAPI retornar geolocalização."""
+    if not isinstance(dados, dict):
+        return None, None
+
+    location = dados.get("location") or {}
+    coordinates = location.get("coordinates") or {}
+
+    lat = None
+    lon = None
+
+    if isinstance(coordinates, dict):
+        lat = coordinates.get("latitude")
+        lon = coordinates.get("longitude")
+    elif isinstance(coordinates, (list, tuple)) and len(coordinates) >= 2:
+        # Algumas APIs usam [longitude, latitude].
+        lon, lat = coordinates[0], coordinates[1]
+
+    if coordenada_valida(lat, lon):
+        return float(lat), float(lon)
+
+    return None, None
+
+
+def montar_payload_cep(dados: dict, fonte: str, cep_limpo: str):
+    """Padroniza o retorno de diferentes APIs de CEP."""
+    lat, lon = extrair_coordenadas_brasilapi_v2(dados)
+
+    return {
+        "cep": dados.get("cep", cep_limpo),
+        "logradouro": dados.get("logradouro") or dados.get("street") or "N/A",
+        "bairro": dados.get("bairro") or dados.get("neighborhood") or "N/A",
+        "localidade": dados.get("localidade") or dados.get("city") or "N/A",
+        "uf": dados.get("uf") or dados.get("state") or "SP",
+        "fonte": fonte,
+        "lat_api": lat,
+        "lon_api": lon,
+    }
+
+
+def consultar_brasilapi_v2(cep_limpo: str):
+    url = f"https://brasilapi.com.br/api/cep/v2/{cep_limpo}"
+    response = requests.get(url, timeout=10, headers={"User-Agent": "Tecnolab-Streamlit/1.0"})
+    response.raise_for_status()
+    return response.json()
+
+
+def consultar_brasilapi_v1(cep_limpo: str):
+    url = f"https://brasilapi.com.br/api/cep/v1/{cep_limpo}"
+    response = requests.get(url, timeout=10, headers={"User-Agent": "Tecnolab-Streamlit/1.0"})
+    response.raise_for_status()
+    return response.json()
+
+
 def consultar_cep(cep: str):
     """
-    Consulta o CEP com fallback entre serviços externos.
+    Consulta o CEP com tolerância a falhas.
 
-    Ordem de tentativa:
-        1. ViaCEP
-        2. BrasilAPI
-
-    Observação:
-        Esta função não usa st.cache_data propositalmente.
-        Se a falha de internet/DNS/proxy fosse cacheada, o app poderia continuar
-        exibindo erro mesmo depois da conectividade ser normalizada.
+    Ordem:
+        1. ViaCEP para dados básicos.
+        2. BrasilAPI V2 para enriquecer com coordenadas, quando disponível.
+        3. BrasilAPI V2/V1 como fallback se o ViaCEP falhar.
     """
     cep_limpo = normalizar_cep(cep)
 
@@ -87,25 +171,28 @@ def consultar_cep(cep: str):
     # --- 1ª tentativa: ViaCEP ---
     try:
         url_viacep = f"https://viacep.com.br/ws/{cep_limpo}/json/"
-        response = requests.get(
-            url_viacep,
-            timeout=10,
-            headers={"User-Agent": "Tecnolab-Streamlit/1.0"}
-        )
+        response = requests.get(url_viacep, timeout=10, headers={"User-Agent": "Tecnolab-Streamlit/1.0"})
         response.raise_for_status()
         dados = response.json()
 
         if dados.get("erro"):
             return None, "CEP não encontrado na base do ViaCEP."
 
-        return {
-            "cep": dados.get("cep", cep_limpo),
-            "logradouro": dados.get("logradouro") or "N/A",
-            "bairro": dados.get("bairro") or "N/A",
-            "localidade": dados.get("localidade") or "N/A",
-            "uf": dados.get("uf") or "SP",
-            "fonte": "ViaCEP"
-        }, None
+        payload = montar_payload_cep(dados, "ViaCEP", cep_limpo)
+
+        # Enriquecimento opcional: tenta obter coordenadas na BrasilAPI V2, sem derrubar o app.
+        try:
+            dados_v2 = consultar_brasilapi_v2(cep_limpo)
+            lat_v2, lon_v2 = extrair_coordenadas_brasilapi_v2(dados_v2)
+            if coordenada_valida(lat_v2, lon_v2):
+                payload["lat_api"] = lat_v2
+                payload["lon_api"] = lon_v2
+                payload["fonte_coordenada_api"] = "BrasilAPI V2"
+        except Exception as e:
+            payload["fonte_coordenada_api"] = None
+            payload["observacao_api_coords"] = f"BrasilAPI V2 sem coordenada disponível: {type(e).__name__}"
+
+        return payload, None
 
     except requests.exceptions.Timeout:
         tentativas.append("ViaCEP: timeout")
@@ -118,38 +205,39 @@ def consultar_cep(cep: str):
     except ValueError:
         tentativas.append("ViaCEP: resposta JSON inválida")
 
-    # --- 2ª tentativa: BrasilAPI ---
+    # --- 2ª tentativa: BrasilAPI V2 ---
     try:
-        url_brasilapi = f"https://brasilapi.com.br/api/cep/v1/{cep_limpo}"
-        response = requests.get(
-            url_brasilapi,
-            timeout=10,
-            headers={"User-Agent": "Tecnolab-Streamlit/1.0"}
-        )
-        response.raise_for_status()
-        dados = response.json()
-
-        return {
-            "cep": dados.get("cep", cep_limpo),
-            "logradouro": dados.get("street") or "N/A",
-            "bairro": dados.get("neighborhood") or "N/A",
-            "localidade": dados.get("city") or "N/A",
-            "uf": dados.get("state") or "SP",
-            "fonte": "BrasilAPI"
-        }, None
-
+        dados = consultar_brasilapi_v2(cep_limpo)
+        return montar_payload_cep(dados, "BrasilAPI V2", cep_limpo), None
     except requests.exceptions.Timeout:
-        tentativas.append("BrasilAPI: timeout")
+        tentativas.append("BrasilAPI V2: timeout")
     except requests.exceptions.ConnectionError:
-        tentativas.append("BrasilAPI: falha de conexão")
+        tentativas.append("BrasilAPI V2: falha de conexão")
     except requests.exceptions.HTTPError as e:
         if getattr(e.response, "status_code", None) == 404:
             return None, "CEP não encontrado nas bases consultadas."
-        tentativas.append(f"BrasilAPI: erro HTTP {e}")
+        tentativas.append(f"BrasilAPI V2: erro HTTP {e}")
     except requests.exceptions.RequestException as e:
-        tentativas.append(f"BrasilAPI: {e}")
+        tentativas.append(f"BrasilAPI V2: {e}")
     except ValueError:
-        tentativas.append("BrasilAPI: resposta JSON inválida")
+        tentativas.append("BrasilAPI V2: resposta JSON inválida")
+
+    # --- 3ª tentativa: BrasilAPI V1 ---
+    try:
+        dados = consultar_brasilapi_v1(cep_limpo)
+        return montar_payload_cep(dados, "BrasilAPI V1", cep_limpo), None
+    except requests.exceptions.Timeout:
+        tentativas.append("BrasilAPI V1: timeout")
+    except requests.exceptions.ConnectionError:
+        tentativas.append("BrasilAPI V1: falha de conexão")
+    except requests.exceptions.HTTPError as e:
+        if getattr(e.response, "status_code", None) == 404:
+            return None, "CEP não encontrado nas bases consultadas."
+        tentativas.append(f"BrasilAPI V1: erro HTTP {e}")
+    except requests.exceptions.RequestException as e:
+        tentativas.append(f"BrasilAPI V1: {e}")
+    except ValueError:
+        tentativas.append("BrasilAPI V1: resposta JSON inválida")
 
     return None, (
         "Não foi possível consultar o CEP nos serviços externos. "
@@ -166,7 +254,8 @@ def diagnosticar_conectividade_cep(cep: str):
 
     endpoints = [
         ("ViaCEP", f"https://viacep.com.br/ws/{cep_limpo}/json/"),
-        ("BrasilAPI", f"https://brasilapi.com.br/api/cep/v1/{cep_limpo}"),
+        ("BrasilAPI V2", f"https://brasilapi.com.br/api/cep/v2/{cep_limpo}"),
+        ("BrasilAPI V1", f"https://brasilapi.com.br/api/cep/v1/{cep_limpo}"),
     ]
 
     resultados = []
@@ -232,49 +321,210 @@ def obter_distancia_real(lon1, lat1, lon2, lat2):
         return None, None, None
 
 
+def pontuar_feature_geocodificacao(feature, logradouro, bairro, cidade, uf, cep_limpo):
+    props = feature.get("properties", {}) or {}
+    geom = feature.get("geometry", {}) or {}
+    coords = geom.get("coordinates", [])
+
+    if not isinstance(coords, (list, tuple)) or len(coords) < 2:
+        return -9999
+
+    lon, lat = coords[0], coords[1]
+    if not coordenada_valida(lat, lon):
+        return -9999
+
+    partes = []
+    for chave in ["label", "name", "street", "locality", "localadmin", "neighbourhood", "county", "region", "postalcode", "country"]:
+        valor = props.get(chave)
+        if valor:
+            partes.append(str(valor))
+    texto = normalizar_texto(" ".join(partes))
+
+    score = 0
+
+    confidence = props.get("confidence")
+    try:
+        score += float(confidence) * 100
+    except (TypeError, ValueError):
+        pass
+
+    logradouro_n = normalizar_texto(logradouro)
+    bairro_n = normalizar_texto(bairro)
+    cidade_n = normalizar_texto(cidade)
+    uf_n = normalizar_texto(uf)
+
+    if logradouro_n and logradouro_n in texto:
+        score += 120
+    else:
+        tokens_relevantes = [t for t in logradouro_n.split() if len(t) >= 4]
+        score += sum(12 for t in tokens_relevantes if t in texto)
+
+    if bairro_n and bairro_n in texto:
+        score += 45
+    if cidade_n and cidade_n in texto:
+        score += 65
+    if uf_n and uf_n in texto:
+        score += 20
+    if cep_limpo and cep_limpo in re.sub(r"\D", "", texto):
+        score += 100
+
+    # Bônus para a região de atuação do app: Grande São Paulo/ABC.
+    try:
+        lat_f = float(lat)
+        lon_f = float(lon)
+        if -24.1 <= lat_f <= -23.3 and -47.1 <= lon_f <= -45.8:
+            score += 30
+    except (TypeError, ValueError):
+        pass
+
+    return score
+
+
 @st.cache_data(show_spinner=False, ttl=86400)
-def buscar_coordenadas_endereco(logradouro, bairro, cidade):
-    """Busca coordenadas do endereço no OpenRouteService/Pelias."""
+def buscar_coordenadas_por_geocoder(cep_limpo, logradouro, bairro, cidade, uf):
+    """
+    Busca coordenadas no ORS/Pelias usando mais contexto do que apenas rua + cidade.
+    O retorno é avaliado por pontuação para reduzir escolha de ponto incorreto.
+    """
     termos_busca = []
 
-    if logradouro and logradouro != "N/A":
+    if texto_valido(logradouro):
         termos_busca.append(
             ", ".join(
-                item for item in [logradouro, bairro, cidade, "SP", "Brasil"]
-                if item and item != "N/A"
+                item for item in [logradouro, bairro, cidade, uf, cep_limpo, "Brasil"]
+                if texto_valido(item)
+            )
+        )
+        termos_busca.append(
+            ", ".join(
+                item for item in [logradouro, bairro, cidade, uf, "Brasil"]
+                if texto_valido(item)
+            )
+        )
+        termos_busca.append(
+            ", ".join(
+                item for item in [logradouro, cidade, uf, "Brasil"]
+                if texto_valido(item)
             )
         )
 
-    if cidade and cidade != "N/A":
-        termos_busca.append(f"{cidade}, SP, Brasil")
+    if texto_valido(cidade):
+        termos_busca.append(
+            ", ".join(
+                item for item in [bairro, cidade, uf, cep_limpo, "Brasil"]
+                if texto_valido(item)
+            )
+        )
 
-    if not termos_busca:
-        return None, None, "Endereço insuficiente para geolocalização."
+    termos_busca.append(f"{cep_limpo}, Brasil")
 
+    # Remove duplicidades preservando ordem.
+    termos_busca = list(dict.fromkeys(termos_busca))
+
+    melhor = None
     ultimo_erro = None
+    candidatos_diag = []
 
     for termo in termos_busca:
         try:
-            geo_res = ors_client.pelias_search(
-                text=termo,
-                size=1,
-                focus_point=[-46.5594, -23.6912]
-            )
+            try:
+                geo_res = ors_client.pelias_search(
+                    text=termo,
+                    size=10,
+                    focus_point=[-46.5594, -23.6912],
+                    country="BR"
+                )
+            except TypeError:
+                # Compatibilidade com versões do openrouteservice sem parâmetro country.
+                geo_res = ors_client.pelias_search(
+                    text=termo,
+                    size=10,
+                    focus_point=[-46.5594, -23.6912]
+                )
 
             features = geo_res.get("features", [])
-            if features:
-                coords = features[0].get("geometry", {}).get("coordinates", [])
-                if len(coords) >= 2:
-                    lon_c, lat_c = coords[0], coords[1]
-                    return lat_c, lon_c, None
+            for feature in features:
+                coords = feature.get("geometry", {}).get("coordinates", [])
+                if len(coords) < 2:
+                    continue
+
+                lon_c, lat_c = coords[0], coords[1]
+                if not coordenada_valida(lat_c, lon_c):
+                    continue
+
+                score = pontuar_feature_geocodificacao(feature, logradouro, bairro, cidade, uf, cep_limpo)
+                props = feature.get("properties", {}) or {}
+                label = props.get("label") or props.get("name") or termo
+
+                candidatos_diag.append({
+                    "termo": termo,
+                    "label": label,
+                    "lat": float(lat_c),
+                    "lon": float(lon_c),
+                    "score": round(score, 2)
+                })
+
+                if melhor is None or score > melhor["score"]:
+                    melhor = {
+                        "lat": float(lat_c),
+                        "lon": float(lon_c),
+                        "score": score,
+                        "label": label,
+                        "termo": termo
+                    }
 
         except Exception as e:
             ultimo_erro = str(e)
 
-    if ultimo_erro:
-        return None, None, f"Erro ao geolocalizar o endereço pela ORS: {ultimo_erro}"
+    if melhor:
+        candidatos_diag = sorted(candidatos_diag, key=lambda x: x["score"], reverse=True)[:10]
+        return melhor["lat"], melhor["lon"], {
+            "fonte": "OpenRouteService/Pelias",
+            "label": melhor["label"],
+            "termo": melhor["termo"],
+            "score": round(melhor["score"], 2),
+            "candidatos": candidatos_diag
+        }, None
 
-    return None, None, "Não foi possível localizar coordenadas para o endereço retornado pelo CEP."
+    if ultimo_erro:
+        return None, None, None, f"Erro ao geolocalizar o endereço pela ORS: {ultimo_erro}"
+
+    return None, None, None, "Não foi possível localizar coordenadas para o endereço retornado pelo CEP."
+
+
+def obter_coordenadas_cliente(cep_limpo, dados_cep):
+    """Define a melhor fonte de coordenadas do cliente."""
+    if cep_limpo in COORDENADAS_CEP_CORRIGIDAS:
+        item = COORDENADAS_CEP_CORRIGIDAS[cep_limpo]
+        lat = item.get("lat")
+        lon = item.get("lon")
+        if coordenada_valida(lat, lon):
+            return float(lat), float(lon), {
+                "fonte": "Correção manual por CEP",
+                "label": item.get("observacao", "Correção manual"),
+                "termo": cep_limpo,
+                "score": None,
+                "candidatos": []
+            }, None
+
+    lat_api = dados_cep.get("lat_api")
+    lon_api = dados_cep.get("lon_api")
+    if coordenada_valida(lat_api, lon_api):
+        return float(lat_api), float(lon_api), {
+            "fonte": dados_cep.get("fonte_coordenada_api") or dados_cep.get("fonte") or "API de CEP",
+            "label": "Coordenada retornada pela API de CEP",
+            "termo": cep_limpo,
+            "score": None,
+            "candidatos": []
+        }, None
+
+    return buscar_coordenadas_por_geocoder(
+        cep_limpo=cep_limpo,
+        logradouro=dados_cep.get("logradouro") or "N/A",
+        bairro=dados_cep.get("bairro") or "N/A",
+        cidade=dados_cep.get("localidade") or "N/A",
+        uf=dados_cep.get("uf") or "SP"
+    )
 
 
 # --- LOGIN ---
@@ -357,8 +607,9 @@ elif cep_limpo:
         logra = r.get("logradouro") or "N/A"
         bairro = r.get("bairro") or "N/A"
         cidade = r.get("localidade") or "N/A"
+        uf = r.get("uf") or "SP"
 
-        lat_c, lon_c, erro_geo = buscar_coordenadas_endereco(logra, bairro, cidade)
+        lat_c, lon_c, diag_geo, erro_geo = obter_coordenadas_cliente(cep_limpo, r)
 
         if erro_geo:
             st.error(erro_geo)
@@ -397,7 +648,29 @@ elif cep_limpo:
         cl, cr = st.columns([1, 1.4])
 
         with cl:
-            st.info(f"📍 **Endereço:** {logra}, {bairro}, {cidade}  \nFonte CEP: {r.get("fonte", "N/A")}")
+            st.info(
+                f"📍 **Endereço:** {logra}, {bairro}, {cidade}/{uf}  \n"
+                f"Fonte CEP: {r.get('fonte', 'N/A')}  \n"
+                f"Fonte coordenada: {diag_geo.get('fonte', 'N/A') if diag_geo else 'N/A'}"
+            )
+
+            with st.expander("Diagnóstico de geocodificação"):
+                st.write({
+                    "CEP": cep_limpo,
+                    "Latitude usada": lat_c,
+                    "Longitude usada": lon_c,
+                    "Fonte": diag_geo.get("fonte") if diag_geo else "N/A",
+                    "Resultado selecionado": diag_geo.get("label") if diag_geo else "N/A",
+                    "Termo pesquisado": diag_geo.get("termo") if diag_geo else "N/A",
+                    "Score": diag_geo.get("score") if diag_geo else "N/A",
+                })
+
+                candidatos = diag_geo.get("candidatos") if diag_geo else []
+                if candidatos:
+                    st.caption("Principais candidatos retornados pelo geocodificador")
+                    st.dataframe(pd.DataFrame(candidatos), use_container_width=True, hide_index=True)
+                else:
+                    st.caption("Coordenada definida por API de CEP ou correção manual. Sem lista de candidatos ORS/Pelias.")
 
             lista_unidades = df_comp["nome"].tolist()
             index_sugerido = lista_unidades.index(melhor_u_nome) if melhor_u_nome in lista_unidades else 0
@@ -449,6 +722,10 @@ elif cep_limpo:
                     "Endereço": logra,
                     "Bairro": bairro,
                     "Cidade": cidade,
+                    "UF": uf,
+                    "Fonte Coordenada": diag_geo.get("fonte") if diag_geo else "N/A",
+                    "Lat Cliente": lat_c,
+                    "Lon Cliente": lon_c,
                     "Unid. Sugerida": melhor_u_nome,
                     "Unid. Escolhida": escolha,
                     "KM Real": dist_escolhida,
@@ -471,7 +748,8 @@ elif cep_limpo:
 
             folium.Marker(
                 [lat_c, lon_c],
-                tooltip="Cliente",
+                tooltip=f"Cliente - {cep_limpo}",
+                popup=f"{logra}, {bairro}, {cidade}/{uf}<br>Fonte: {diag_geo.get('fonte') if diag_geo else 'N/A'}",
                 icon=folium.Icon(color="red", icon="home")
             ).add_to(m)
 
@@ -489,7 +767,7 @@ elif cep_limpo:
                     weight=6
                 ).add_to(m)
 
-            st_folium(m, use_container_width=True, height=600, key="mapa_v89")
+            st_folium(m, use_container_width=True, height=600, key="mapa_v90")
 
 
 # --- HISTÓRICO ---
@@ -512,3 +790,4 @@ if st.session_state["historico"]:
         )
 
     st.dataframe(df_h, use_container_width=True, hide_index=True)
+
