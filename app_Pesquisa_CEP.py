@@ -10,7 +10,7 @@ from streamlit_folium import st_folium
 from datetime import datetime
 
 # --- 1. CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="Tecnolab Logística V8.8", layout="wide", page_icon="🚚")
+st.set_page_config(page_title="Tecnolab Logística V8.9", layout="wide", page_icon="🚚")
 
 # --- CSS ADAPTATIVO (SUPORTE A MODO CLARO E ESCURO) ---
 st.markdown("""
@@ -64,53 +64,133 @@ def normalizar_cep(cep: str) -> str:
     return re.sub(r"\D", "", str(cep or ""))
 
 
-@st.cache_data(show_spinner=False, ttl=86400)
-def consultar_viacep(cep: str):
+def consultar_cep(cep: str):
     """
-    Consulta o ViaCEP com tratamento de falhas de conexão, timeout, HTTP e JSON.
+    Consulta o CEP com fallback entre serviços externos.
 
-    Retorno:
-        tuple(dict|None, str|None): dados do CEP ou mensagem de erro.
+    Ordem de tentativa:
+        1. ViaCEP
+        2. BrasilAPI
+
+    Observação:
+        Esta função não usa st.cache_data propositalmente.
+        Se a falha de internet/DNS/proxy fosse cacheada, o app poderia continuar
+        exibindo erro mesmo depois da conectividade ser normalizada.
     """
     cep_limpo = normalizar_cep(cep)
 
     if len(cep_limpo) != 8:
         return None, "CEP inválido. Informe um CEP com 8 dígitos."
 
-    url = f"https://viacep.com.br/ws/{cep_limpo}/json/"
+    tentativas = []
 
+    # --- 1ª tentativa: ViaCEP ---
     try:
+        url_viacep = f"https://viacep.com.br/ws/{cep_limpo}/json/"
         response = requests.get(
-            url,
+            url_viacep,
             timeout=10,
             headers={"User-Agent": "Tecnolab-Streamlit/1.0"}
         )
         response.raise_for_status()
-
         dados = response.json()
 
         if dados.get("erro"):
             return None, "CEP não encontrado na base do ViaCEP."
 
-        return dados, None
+        return {
+            "cep": dados.get("cep", cep_limpo),
+            "logradouro": dados.get("logradouro") or "N/A",
+            "bairro": dados.get("bairro") or "N/A",
+            "localidade": dados.get("localidade") or "N/A",
+            "uf": dados.get("uf") or "SP",
+            "fonte": "ViaCEP"
+        }, None
 
     except requests.exceptions.Timeout:
-        return None, "Tempo esgotado ao consultar o ViaCEP. Tente novamente."
-
+        tentativas.append("ViaCEP: timeout")
     except requests.exceptions.ConnectionError:
-        return None, (
-            "Não foi possível conectar ao ViaCEP. "
-            "Verifique internet, DNS, proxy ou firewall do servidor/container do Streamlit."
-        )
-
+        tentativas.append("ViaCEP: falha de conexão")
     except requests.exceptions.HTTPError as e:
-        return None, f"Erro HTTP ao consultar o ViaCEP: {e}"
-
+        tentativas.append(f"ViaCEP: erro HTTP {e}")
     except requests.exceptions.RequestException as e:
-        return None, f"Falha ao consultar o ViaCEP: {e}"
-
+        tentativas.append(f"ViaCEP: {e}")
     except ValueError:
-        return None, "O ViaCEP retornou uma resposta inválida ou fora do formato JSON esperado."
+        tentativas.append("ViaCEP: resposta JSON inválida")
+
+    # --- 2ª tentativa: BrasilAPI ---
+    try:
+        url_brasilapi = f"https://brasilapi.com.br/api/cep/v1/{cep_limpo}"
+        response = requests.get(
+            url_brasilapi,
+            timeout=10,
+            headers={"User-Agent": "Tecnolab-Streamlit/1.0"}
+        )
+        response.raise_for_status()
+        dados = response.json()
+
+        return {
+            "cep": dados.get("cep", cep_limpo),
+            "logradouro": dados.get("street") or "N/A",
+            "bairro": dados.get("neighborhood") or "N/A",
+            "localidade": dados.get("city") or "N/A",
+            "uf": dados.get("state") or "SP",
+            "fonte": "BrasilAPI"
+        }, None
+
+    except requests.exceptions.Timeout:
+        tentativas.append("BrasilAPI: timeout")
+    except requests.exceptions.ConnectionError:
+        tentativas.append("BrasilAPI: falha de conexão")
+    except requests.exceptions.HTTPError as e:
+        if getattr(e.response, "status_code", None) == 404:
+            return None, "CEP não encontrado nas bases consultadas."
+        tentativas.append(f"BrasilAPI: erro HTTP {e}")
+    except requests.exceptions.RequestException as e:
+        tentativas.append(f"BrasilAPI: {e}")
+    except ValueError:
+        tentativas.append("BrasilAPI: resposta JSON inválida")
+
+    return None, (
+        "Não foi possível consultar o CEP nos serviços externos. "
+        "Verifique saída HTTPS, DNS, proxy/firewall do servidor/container do Streamlit. "
+        f"Detalhes: {' | '.join(tentativas)}"
+    )
+
+
+def diagnosticar_conectividade_cep(cep: str):
+    """Executa testes simples de conectividade HTTP para exibir no Streamlit."""
+    cep_limpo = normalizar_cep(cep)
+    if len(cep_limpo) != 8:
+        return []
+
+    endpoints = [
+        ("ViaCEP", f"https://viacep.com.br/ws/{cep_limpo}/json/"),
+        ("BrasilAPI", f"https://brasilapi.com.br/api/cep/v1/{cep_limpo}"),
+    ]
+
+    resultados = []
+    for nome, url in endpoints:
+        inicio = datetime.now()
+        try:
+            response = requests.get(url, timeout=10, headers={"User-Agent": "Tecnolab-Streamlit/1.0"})
+            duracao_ms = int((datetime.now() - inicio).total_seconds() * 1000)
+            resultados.append({
+                "Serviço": nome,
+                "Status": response.status_code,
+                "Tempo_ms": duracao_ms,
+                "Resultado": "OK" if response.ok else "HTTP não OK"
+            })
+        except Exception as e:
+            duracao_ms = int((datetime.now() - inicio).total_seconds() * 1000)
+            resultados.append({
+                "Serviço": nome,
+                "Status": "-",
+                "Tempo_ms": duracao_ms,
+                "Resultado": f"{type(e).__name__}: {e}"
+            })
+
+    return resultados
 
 
 def calcular_distancia_reta(lat1, lon1, lat2, lon2):
@@ -260,10 +340,18 @@ if cep and len(cep_limpo) != 8:
 
 elif cep_limpo:
     with st.spinner("Consultando CEP e calculando unidade mais próxima..."):
-        r, erro_cep = consultar_viacep(cep_limpo)
+        r, erro_cep = consultar_cep(cep_limpo)
 
     if erro_cep:
         st.error(erro_cep)
+
+        with st.expander("Diagnóstico técnico da consulta CEP"):
+            if st.button("Testar serviços de CEP agora", use_container_width=True):
+                resultados_diag = diagnosticar_conectividade_cep(cep_limpo)
+                if resultados_diag:
+                    st.dataframe(pd.DataFrame(resultados_diag), use_container_width=True, hide_index=True)
+                else:
+                    st.warning("Informe um CEP válido para executar o diagnóstico.")
 
     else:
         logra = r.get("logradouro") or "N/A"
@@ -309,7 +397,7 @@ elif cep_limpo:
         cl, cr = st.columns([1, 1.4])
 
         with cl:
-            st.info(f"📍 **Endereço:** {logra}, {bairro}, {cidade}")
+            st.info(f"📍 **Endereço:** {logra}, {bairro}, {cidade}  \nFonte CEP: {r.get("fonte", "N/A")}")
 
             lista_unidades = df_comp["nome"].tolist()
             index_sugerido = lista_unidades.index(melhor_u_nome) if melhor_u_nome in lista_unidades else 0
@@ -401,7 +489,7 @@ elif cep_limpo:
                     weight=6
                 ).add_to(m)
 
-            st_folium(m, use_container_width=True, height=600, key="mapa_v88")
+            st_folium(m, use_container_width=True, height=600, key="mapa_v89")
 
 
 # --- HISTÓRICO ---
