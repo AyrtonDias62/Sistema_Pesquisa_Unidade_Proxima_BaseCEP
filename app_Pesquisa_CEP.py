@@ -11,7 +11,7 @@ from streamlit_folium import st_folium
 from datetime import datetime
 
 # --- 1. CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="Tecnolab Logística V9.0", layout="wide", page_icon="🚚")
+st.set_page_config(page_title="Tecnolab Logística V9.1", layout="wide", page_icon="🚚")
 
 # --- CSS ADAPTATIVO (SUPORTE A MODO CLARO E ESCURO) ---
 st.markdown("""
@@ -527,37 +527,151 @@ def obter_coordenadas_cliente(cep_limpo, dados_cep):
     )
 
 
-# --- LOGIN ---
+# --- LOGIN / PERFIS DE ACESSO ---
+# Senha padrão do usuário final: 123456
+# Senha padrão do perfil técnico/admin: 654321
+# Opcionalmente, configure no secrets.toml:
+# APP_PASSWORD = "senha_usuario_final"
+# ADMIN_PASSWORD = "senha_perfil_tecnico"
 if "autenticado" not in st.session_state:
     st.title("🔐 Acesso Tecnolab")
     senha = st.text_input("Senha:", type="password")
+
     if st.button("Entrar"):
-        senha_app = st.secrets.get("APP_PASSWORD", "123456")
-        if senha == senha_app:
+        senha_usuario = st.secrets.get("APP_PASSWORD", "123456")
+        senha_admin = st.secrets.get("ADMIN_PASSWORD", "654321")
+
+        if senha == senha_admin:
             st.session_state["autenticado"] = True
+            st.session_state["perfil"] = "tecnico"
+            st.rerun()
+        elif senha == senha_usuario:
+            st.session_state["autenticado"] = True
+            st.session_state["perfil"] = "usuario"
             st.rerun()
         else:
             st.error("Senha inválida.")
+
     st.stop()
+
+if "perfil" not in st.session_state:
+    st.session_state["perfil"] = "usuario"
+
+perfil_tecnico = st.session_state.get("perfil") == "tecnico"
 
 
 # --- DADOS ---
 unidades_base = [
-    {"nome": "Matriz SBC", "lat": -23.6912, "lon": -46.5594},
-    {"nome": "U2 - SBC", "lat": -23.70601, "lon": -46.54946},
-    {"nome": "U4 - RIB", "lat": -23.709069, "lon": -46.413002},
-    {"nome": "U5 - SAD", "lat": -23.65458, "lon": -46.53554},
-    {"nome": "U6 - MAU", "lat": -23.66669, "lon": -46.45455},
-    {"nome": "U7 - SBC", "lat": -23.66117, "lon": -46.56506},
-    {"nome": "U8 - SBC", "lat": -23.72231, "lon": -46.56675},
-    {"nome": "U9 - SAC", "lat": -23.61659, "lon": -46.56845},
-    {"nome": "U10 - SAD", "lat": -23.6326784, "lon": -46.5021218},
-    {"nome": "U11 - SAD", "lat": -23.65379, "lon": -46.53542},
-    {"nome": "U13 - DIA", "lat": -23.68791, "lon": -46.62192},
-    {"nome": "U14 - MAU", "lat": -23.66884, "lon": -46.45567},
+    {
+        "nome": "Matriz SBC",
+        "lat": -23.6912,
+        "lon": -46.5594,
+        "endereco": "Av. Lucas Nogueira Garcez, 929",
+        "bairro": "Jardim do Mar",
+        "cidade": "São Bernardo do Campo",
+        "cep": "09750-670"
+    },
+    {
+        "nome": "U2 - SBC",
+        "lat": -23.70601,
+        "lon": -46.54946,
+        "endereco": "Av. Francisco Prestes Maia, 121",
+        "bairro": "Centro",
+        "cidade": "São Bernardo do Campo",
+        "cep": "09770-100"
+    },
+    {
+        "nome": "U4 - RIB",
+        "lat": -23.709069,
+        "lon": -46.413002,
+        "endereco": "Rua Stella Bruna C. Nardelli, 257",
+        "bairro": "Centro",
+        "cidade": "Ribeirão Pires",
+        "cep": "09400-150"
+    },
+    {
+        "nome": "U5 - SAD",
+        "lat": -23.65458,
+        "lon": -46.53554,
+        "endereco": "Rua das Bandeiras, 387",
+        "bairro": "Bairro Jardim",
+        "cidade": "Santo André",
+        "cep": "09090-780"
+    },
+    {
+        "nome": "U6 - MAU",
+        "lat": -23.66669,
+        "lon": -46.45455,
+        "endereco": "Rua Manoel Pedro Jr., 38",
+        "bairro": "Centro",
+        "cidade": "Mauá",
+        "cep": "09310-720"
+    },
+    {
+        "nome": "U7 - SBC",
+        "lat": -23.66117,
+        "lon": -46.56506,
+        "endereco": "Av. Senador Vergueiro, 4070",
+        "bairro": "Rudge Ramos",
+        "cidade": "São Bernardo do Campo",
+        "cep": "09603-000"
+    },
+    {
+        "nome": "U8 - SBC",
+        "lat": -23.72231,
+        "lon": -46.56675,
+        "endereco": "Rua Walter Carlos Zanini, 433",
+        "bairro": "Assunção",
+        "cidade": "São Bernardo do Campo",
+        "cep": "09810-280"
+    },
+    {
+        "nome": "U9 - SAC",
+        "lat": -23.61659,
+        "lon": -46.56845,
+        "endereco": "Av. Goiás, 842",
+        "bairro": "Santo Antônio",
+        "cidade": "São Caetano do Sul",
+        "cep": "09521-300"
+    },
+    {
+        "nome": "U10 - SAD",
+        "lat": -23.6326784,
+        "lon": -46.5021218,
+        "endereco": "Rua Cáucaso, 809",
+        "bairro": "Parque Novo Oratório",
+        "cidade": "Santo André",
+        "cep": "09260-010"
+    },
+    {
+        "nome": "U11 - SAD",
+        "lat": -23.65379,
+        "lon": -46.53542,
+        "endereco": "Rua Padre Manoel de Paiva, 42",
+        "bairro": "Bairro Jardim",
+        "cidade": "Santo André",
+        "cep": "09070-230"
+    },
+    {
+        "nome": "U13 - DIA",
+        "lat": -23.68791,
+        "lon": -46.62192,
+        "endereco": "Rua Regente Feijó, 232",
+        "bairro": "Centro",
+        "cidade": "Diadema",
+        "cep": "09910-770"
+    },
+    {
+        "nome": "U14 - MAU",
+        "lat": -23.66884,
+        "lon": -46.45567,
+        "endereco": "Rua Campos Sales, 269",
+        "bairro": "Centro",
+        "cidade": "Mauá",
+        "cep": "09310-040"
+    },
 ]
 
-# Corrigido: no cadastro das unidades consta U5 - SAD e U11 - SAD, não U5 - SAC / U11 - SAC.
 PARES_PROXIMOS = [{"U6 - MAU", "U14 - MAU"}, {"U11 - SAD", "U5 - SAD"}]
 
 
@@ -595,13 +709,14 @@ elif cep_limpo:
     if erro_cep:
         st.error(erro_cep)
 
-        with st.expander("Diagnóstico técnico da consulta CEP"):
-            if st.button("Testar serviços de CEP agora", use_container_width=True):
-                resultados_diag = diagnosticar_conectividade_cep(cep_limpo)
-                if resultados_diag:
-                    st.dataframe(pd.DataFrame(resultados_diag), use_container_width=True, hide_index=True)
-                else:
-                    st.warning("Informe um CEP válido para executar o diagnóstico.")
+        if perfil_tecnico:
+            with st.expander("Diagnóstico técnico da consulta CEP"):
+                if st.button("Testar serviços de CEP agora", use_container_width=True):
+                    resultados_diag = diagnosticar_conectividade_cep(cep_limpo)
+                    if resultados_diag:
+                        st.dataframe(pd.DataFrame(resultados_diag), use_container_width=True, hide_index=True)
+                    else:
+                        st.warning("Informe um CEP válido para executar o diagnóstico.")
 
     else:
         logra = r.get("logradouro") or "N/A"
@@ -648,29 +763,32 @@ elif cep_limpo:
         cl, cr = st.columns([1, 1.4])
 
         with cl:
-            st.info(
-                f"📍 **Endereço:** {logra}, {bairro}, {cidade}/{uf}  \n"
-                f"Fonte CEP: {r.get('fonte', 'N/A')}  \n"
-                f"Fonte coordenada: {diag_geo.get('fonte', 'N/A') if diag_geo else 'N/A'}"
-            )
+            if perfil_tecnico:
+                st.info(
+                    f"📍 **Endereço:** {logra}, {bairro}, {cidade}/{uf}  \n"
+                    f"Fonte CEP: {r.get('fonte', 'N/A')}  \n"
+                    f"Fonte coordenada: {diag_geo.get('fonte', 'N/A') if diag_geo else 'N/A'}"
+                )
 
-            with st.expander("Diagnóstico de geocodificação"):
-                st.write({
-                    "CEP": cep_limpo,
-                    "Latitude usada": lat_c,
-                    "Longitude usada": lon_c,
-                    "Fonte": diag_geo.get("fonte") if diag_geo else "N/A",
-                    "Resultado selecionado": diag_geo.get("label") if diag_geo else "N/A",
-                    "Termo pesquisado": diag_geo.get("termo") if diag_geo else "N/A",
-                    "Score": diag_geo.get("score") if diag_geo else "N/A",
-                })
+                with st.expander("Diagnóstico de geocodificação"):
+                    st.write({
+                        "CEP": cep_limpo,
+                        "Latitude usada": lat_c,
+                        "Longitude usada": lon_c,
+                        "Fonte": diag_geo.get("fonte") if diag_geo else "N/A",
+                        "Resultado selecionado": diag_geo.get("label") if diag_geo else "N/A",
+                        "Termo pesquisado": diag_geo.get("termo") if diag_geo else "N/A",
+                        "Score": diag_geo.get("score") if diag_geo else "N/A",
+                    })
 
-                candidatos = diag_geo.get("candidatos") if diag_geo else []
-                if candidatos:
-                    st.caption("Principais candidatos retornados pelo geocodificador")
-                    st.dataframe(pd.DataFrame(candidatos), use_container_width=True, hide_index=True)
-                else:
-                    st.caption("Coordenada definida por API de CEP ou correção manual. Sem lista de candidatos ORS/Pelias.")
+                    candidatos = diag_geo.get("candidatos") if diag_geo else []
+                    if candidatos:
+                        st.caption("Principais candidatos retornados pelo geocodificador")
+                        st.dataframe(pd.DataFrame(candidatos), use_container_width=True, hide_index=True)
+                    else:
+                        st.caption("Coordenada definida por API de CEP ou correção manual. Sem lista de candidatos ORS/Pelias.")
+            else:
+                st.info(f"📍 **Endereço:** {logra}, {bairro}, {cidade}/{uf}")
 
             lista_unidades = df_comp["nome"].tolist()
             index_sugerido = lista_unidades.index(melhor_u_nome) if melhor_u_nome in lista_unidades else 0
@@ -723,6 +841,7 @@ elif cep_limpo:
                     "Bairro": bairro,
                     "Cidade": cidade,
                     "UF": uf,
+                    "Fonte CEP": r.get("fonte", "N/A"),
                     "Fonte Coordenada": diag_geo.get("fonte") if diag_geo else "N/A",
                     "Lat Cliente": lat_c,
                     "Lon Cliente": lon_c,
@@ -746,10 +865,14 @@ elif cep_limpo:
         with cr:
             m = folium.Map(location=[lat_c, lon_c], zoom_start=13)
 
+            popup_cliente = f"{logra}, {bairro}, {cidade}/{uf}"
+            if perfil_tecnico:
+                popup_cliente += f"<br>Fonte coordenada: {diag_geo.get('fonte') if diag_geo else 'N/A'}"
+
             folium.Marker(
                 [lat_c, lon_c],
                 tooltip=f"Cliente - {cep_limpo}",
-                popup=f"{logra}, {bairro}, {cidade}/{uf}<br>Fonte: {diag_geo.get('fonte') if diag_geo else 'N/A'}",
+                popup=popup_cliente,
                 icon=folium.Icon(color="red", icon="home")
             ).add_to(m)
 
@@ -767,7 +890,7 @@ elif cep_limpo:
                     weight=6
                 ).add_to(m)
 
-            st_folium(m, use_container_width=True, height=600, key="mapa_v90")
+            st_folium(m, use_container_width=True, height=600, key="mapa_v91")
 
 
 # --- HISTÓRICO ---
@@ -775,12 +898,24 @@ if st.session_state["historico"]:
     st.divider()
     df_h = pd.DataFrame(st.session_state["historico"])
 
+    colunas_tecnicas = [
+        "Fonte CEP",
+        "Fonte Coordenada",
+        "Lat Cliente",
+        "Lon Cliente",
+    ]
+
+    if perfil_tecnico:
+        df_h_exibicao = df_h.copy()
+    else:
+        df_h_exibicao = df_h.drop(columns=[c for c in colunas_tecnicas if c in df_h.columns], errors="ignore")
+
     h1, h2 = st.columns([3, 1])
     with h1:
         st.subheader("📝 Histórico Operacional")
 
     with h2:
-        csv = df_h.to_csv(index=False).encode("utf-8-sig")
+        csv = df_h_exibicao.to_csv(index=False).encode("utf-8-sig")
         st.download_button(
             "📥 Exportar CSV",
             csv,
@@ -789,5 +924,4 @@ if st.session_state["historico"]:
             use_container_width=True
         )
 
-    st.dataframe(df_h, use_container_width=True, hide_index=True)
-
+    st.dataframe(df_h_exibicao, use_container_width=True, hide_index=True)
